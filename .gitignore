@@ -216,3 +216,9 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Project specific ignores
+myvenv/
+venv_config.json
+*.pdf
+*.png
