@@ -7,6 +7,7 @@ from scipy.stats import gaussian_kde, norm
 from pathlib import Path
 from utils import printing as prt
 from utils import reportify as rprt
+from utils import time_series as ts
 
 def print_divider(text: str):
     def decorator(func_name: str):
@@ -560,6 +561,57 @@ class DataInsights:
         self._calculate_pairwise_accuracy_estimations(distance_matrix_df, enable_pdf_write=True)        
 
 
+    @print_divider("TIME AXIS SANITIZATION")
+    def ts_time_axis_sanitization(self, time_axis_column: str = 'Date', original_timezone: str = 'UTC'):
+
+        # 1 - Check to see if the time axis column has missing or invalid values in it (null or nan)
+        _results_dict = ts.check_for_time_validity(self.df[time_axis_column])
+        print(f"Time axis validity status: {_results_dict}")
+
+        # 2 - Ensure DateTime type is used on the time axis in the dataset. (assuming Date is in string format)
+        incoming_str_date_format = '%d/%m/%Y %H:%M'  # Date definition in original dataset
+        new_name = 'DateTime'  # Choose a name for referencing DateTime column moving forward
+        if ts.is_datetime_column(self.df[time_axis_column]) == False:
+            self.df[new_name] = self.df[time_axis_column].apply(ts.string_to_datetime, format=incoming_str_date_format)
+        else:
+            # Just rename the date column for consistency.
+            self.df.rename(columns={time_axis_column: new_name}, inplace=True)
+
+        print(f"Time column of data frame is now {new_name} of type DateTime.")
+
+        # 3 - Check to see if the original order of time is monotonically increasing or decreasing
+        _monotonic_status = ts.check_for_monotonicity(self.df[new_name]) 
+        if _monotonic_status == 1:
+            print(f"Original order of time is monotonically increasing...")
+        elif _monotonic_status == -1:
+            print(f"Original order of time is monotonically decreasing...")
+        else:
+            print(f"Original order of time is NOT monotonic...")
+
+        # 4 - Check duplicate timestamps in the time axis.
+        _duplicate_timestamps = ts.check_for_duplicate_timestamps(self.df[new_name])  # retuns the number of duplicate timestamps detected
+        print(f"Number of duplicate timestamps detected: {_duplicate_timestamps}")
+
+        # 5 - Sort the 'DateTime' in ascending order to ensure the time axis is monotonically increasing.
+        if _monotonic_status != 1:
+            # IF time axis is not already monotonically increasing, sort time column ascending order.
+            self.df.sort_values(new_name, inplace=True)
+            print(f"Time axis sorted in ascending order.")
+
+        # At this point, the time axis is monotonically increasing.
+
+        # 6 - Adjust the DateTime to UTC, taking the original timezone of the data into account.
+        self.df[new_name] = ts.utc_timezone_adjustment(self.df[new_name], original_timezone)
+        print(f"Time axis adjusted to UTC timezone.")
+
+        # 7 - Remove duplicate time stamps if any. DO THIS AFTER utc_timezone_adjustment() call because it may
+        # resolve duplicates due to clocks going back while leaving the other duplicates intact!
+        self.df.drop_duplicates(subset=[new_name], inplace=True)  # Remove rows with duplicate time stamps
+        print(f"Duplicate time stamps removed.")
+
+        # 5 - Set the 'DateTime' column as the index of the dataframe. (name of the index will be the same as the column name)
+        #self.df.set_index(new_name, inplace=True)
+        #print(f"Monotonic time axis validated: {self.df.index.is_monotonic_increasing}")  # for double confirmation!
 
     def _calculate_pairwise_accuracy_estimations(self, distance_matrix_df: pd.DataFrame, enable_pdf_write: bool = True):
         """

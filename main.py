@@ -22,14 +22,21 @@ def run_data_exploration_pipeline(file_idx: int, csv_dataset_path: str):
     dsObj.missing_values_analysis()
     dsObj.correlation_analysis()  # Good to perform AFTER eliminating missing values!! Otherwise, some correlations will be NaN and the analysis will fail.
     dsObj.numeric_summary()
-    dsObj.numeric_distributions()
+    dsObj.numeric_distributions()  # Generates distribution plots (bar + kde) for each numeric column.
     dsObj.categorical_summary()
     # Based on the categorical_summary(), identify categories with too many unique values and (optionally) ignore them in the numerical_statistics_for_categorical_columns() analysis.
     # This is because when columns with too many unique cell values are used, this method will calculate meaningless statistics.
     dsObj.numerical_statistics_for_categorical_columns(ignored_columns = ['Date', 'Product ID'])
-    #dsObj.correlation_analysis()
+    # END OF COMMON DATA INSIGHTS ANALYSIS
 
+    # START OF DATASET SPECIFIC INSIGHTS ANALYSIS
+    dsObj.ts_time_axis_sanitization(time_axis_column = 'Date', original_timezone = 'Europe/Paris')  # Perform time axis driven sanitizations. Provide the time column name.
+
+
+
+    # WRAPPING UP AFTER FULL ANALYSIS
     dsObj.end_operation()  # finalize the pdf report and close all plots.
+
 
 if __name__ == "__main__":
 
