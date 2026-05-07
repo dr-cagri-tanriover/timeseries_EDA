@@ -15,14 +15,14 @@ def print_divider(text: str):
             print(f"\n" + "=" *80)
             print(text)
             print(f"=" *80)
-            func_name(*args, **kwargs)
+            return func_name(*args, **kwargs)
         return wrapper
     return decorator    
 
 def print_line(func_name: str):
     def wrapper(*args, **kwargs):
         print(f"\n" + "=" *80)
-        func_name(*args, **kwargs)
+        return func_name(*args, **kwargs)
     return wrapper
 
 
@@ -562,11 +562,14 @@ class DataInsights:
 
 
     @print_divider("TIME AXIS SANITIZATION")
-    def ts_time_axis_sanitization(self, time_axis_column: str = 'Date', original_timezone: str = 'UTC'):
+    def ts_time_axis_sanitization(self, time_axis_column: str = 'Date', original_timezone: str = 'UTC', save_folder: str = None, display_plots: bool = False) -> str: 
+
+        self.reportObj.open_new_page(page_title="TIME AXIS SANITIZATION", enable_write=True)  # Add an empty page in the pdf report, and add the page title to the page.
 
         # 1 - Check to see if the time axis column has missing or invalid values in it (null or nan)
         _results_dict = ts.check_for_time_validity(self.df[time_axis_column])
-        print(f"Time axis validity status: {_results_dict}")
+        message = f"Time axis validity status: {_results_dict}\n\n"
+        self.reportObj.print(rprt.ReportDataType.BODY, message)  # Print the paragraph to the console as well as the pdf report
 
         # 2 - Ensure DateTime type is used on the time axis in the dataset. (assuming Date is in string format)
         incoming_str_date_format = '%d/%m/%Y %H:%M'  # Date definition in original dataset
@@ -577,41 +580,112 @@ class DataInsights:
             # Just rename the date column for consistency.
             self.df.rename(columns={time_axis_column: new_name}, inplace=True)
 
-        print(f"Time column of data frame is now {new_name} of type DateTime.")
+        message = f"Time column of data frame is now {new_name} of type DateTime.\n\n"
+        self.reportObj.print(rprt.ReportDataType.BODY, message)  # Print the paragraph to the console as well as the pdf report
+
+        # Plot the time axis to see how it is before sanitization
+        start_timestamps = self.df[new_name].copy()
+        start_indices = pd.Series(range(len(self.df)))
 
         # 3 - Check to see if the original order of time is monotonically increasing or decreasing
         _monotonic_status = ts.check_for_monotonicity(self.df[new_name]) 
         if _monotonic_status == 1:
-            print(f"Original order of time is monotonically increasing...")
+            message = f"Original order of time is monotonically increasing...\n\n"
         elif _monotonic_status == -1:
-            print(f"Original order of time is monotonically decreasing...")
+            message = f"Original order of time is monotonically decreasing...\n\n"
         else:
-            print(f"Original order of time is NOT monotonic...")
+            message = f"Original order of time is NOT monotonic...\n\n"
+        self.reportObj.print(rprt.ReportDataType.BODY, message)  # Print the paragraph to the console as well as the pdf report
 
         # 4 - Check duplicate timestamps in the time axis.
         _duplicate_timestamps = ts.check_for_duplicate_timestamps(self.df[new_name])  # retuns the number of duplicate timestamps detected
-        print(f"Number of duplicate timestamps detected: {_duplicate_timestamps}")
+        message = f"Number of duplicate timestamps detected: {_duplicate_timestamps}\n\n"
+        self.reportObj.print(rprt.ReportDataType.BODY, message)  # Print the paragraph to the console as well as the pdf report
 
         # 5 - Sort the 'DateTime' in ascending order to ensure the time axis is monotonically increasing.
         if _monotonic_status != 1:
             # IF time axis is not already monotonically increasing, sort time column ascending order.
             self.df.sort_values(new_name, inplace=True)
-            print(f"Time axis sorted in ascending order.")
+            message = f"Time axis sorted in ascending order.\n\n"
+            self.reportObj.print(rprt.ReportDataType.BODY, message)  # Print the paragraph to the console as well as the pdf report
 
         # At this point, the time axis is monotonically increasing.
 
         # 6 - Adjust the DateTime to UTC, taking the original timezone of the data into account.
         self.df[new_name] = ts.utc_timezone_adjustment(self.df[new_name], original_timezone)
-        print(f"Time axis adjusted to UTC timezone.")
+        message = f"Time axis adjusted to UTC timezone.\n\n"
+        self.reportObj.print(rprt.ReportDataType.BODY, message)  # Print the paragraph to the console as well as the pdf report
 
         # 7 - Remove duplicate time stamps if any. DO THIS AFTER utc_timezone_adjustment() call because it may
         # resolve duplicates due to clocks going back while leaving the other duplicates intact!
         self.df.drop_duplicates(subset=[new_name], inplace=True)  # Remove rows with duplicate time stamps
-        print(f"Duplicate time stamps removed.")
+        message = f"Duplicate time stamps removed.\n\n"
+        self.reportObj.print(rprt.ReportDataType.BODY, message)  # Print the paragraph to the console as well as the pdf report
 
-        # 5 - Set the 'DateTime' column as the index of the dataframe. (name of the index will be the same as the column name)
+        # 8 - Set the 'DateTime' column as the index of the dataframe. (name of the index will be the same as the column name)
         #self.df.set_index(new_name, inplace=True)
         #print(f"Monotonic time axis validated: {self.df.index.is_monotonic_increasing}")  # for double confirmation!
+
+        # Plot the time axis to see before and after sanitization comparison
+        # BEFORE SANITIZATION:
+        self._basic_scatter_plot(
+            x=start_indices, y=start_timestamps, 
+            xLabel="index",
+            yLabel="Date Time",
+            title="Dataset Original Timestamps",
+            label="original timestamps", 
+            save_plot_filename="original_timestamps.png",
+            save_folder=save_folder,
+            pdf_page_title="ORIGINAL DATASET TIMESTAMPS",
+            enable_pdf_write=True,
+            display_plots=display_plots
+        )
+
+        # AFTER SANITIZATION:
+        self._basic_scatter_plot(
+            x=pd.Series(range(len(self.df))), y=self.df[new_name], 
+            xLabel="index",
+            yLabel="Date Time",
+            title="Sanitized Timestamps",
+            label="sanitized timestamps", 
+            save_plot_filename="sanitized_timestamps.png",
+            save_folder=save_folder,
+            pdf_page_title="SANITIZED DATASET TIMESTAMPS",
+            enable_pdf_write=True,
+            display_plots=display_plots
+        )
+
+        return new_name  # The new column name for the sanitized time axis.
+
+    def ts_time_axis_segmentation(self, time_axis_column:str = 'Date', segment_column:str = None, save_folder:str = None, display_plots:bool = False):
+        """
+        Segment the time axis based on the unique values of a selected column.
+        """
+
+        if segment_column is None:
+            raise ValueError("Segment column is required for time axis segmentation.")
+        
+        unique_values = self.df[segment_column].unique()
+
+        if len(unique_values) < 2:
+            print(f"Only one unique value found in the segment column: {segment_column}. Skipping time axis segmentation.")
+
+        for value in unique_values:
+            mask = self.df[segment_column] == value
+            timestamps = self.df[time_axis_column][mask]
+            
+            sampling_intervals = timestamps.diff().value_counts()  # Count the number of occurrences of each sampling interval.
+
+            pie_slices = 4  # Let's limit the number of slices for better readability.
+            series = pd.Series(sampling_intervals.to_list())
+            groups = pd.cut(series, bins=pie_slices)
+            counts = groups.value_counts()
+            filename = f"sampling_time_spread_{segment_column}_is_{value}.png"
+
+            self._basic_pie_chart(counts, title=None, label="Legend", save_plot_filename=filename, save_folder=save_folder, pdf_page_title=f"{segment_column}={value} SAMPLING TIME DISTRIBUTION")
+
+        # Do the pdf text report part first and then add the plots into the pdf for better context.
+
 
     def _calculate_pairwise_accuracy_estimations(self, distance_matrix_df: pd.DataFrame, enable_pdf_write: bool = True):
         """
@@ -899,6 +973,79 @@ class DataInsights:
 
                 # else skip the plot to avoid duplication
 
+    def _basic_pie_chart(self, data: pd.Series, title: str = "Pie Chart", label: str = "Legend", save_plot_filename: str = None, save_folder: str = None, pdf_page_title: str = None, enable_pdf_write: bool = True, display_plots: bool = False):
+        """
+        Basic pie chart for single trace.
+        """
+        fig, ax = plt.subplots(figsize=(8, 6))
+        wedges, _, _ = ax.pie(
+            data,
+            labels=None,  # avoid crowded wedge labels
+            autopct=lambda percentage: f"{percentage:.1f}%" if percentage > 5 else "",  # only annotate slices with more than 5%
+            startangle=90,
+            pctdistance=0.72,  # % text distance from the center of the pie chart
+            textprops={'fontsize': 9},
+            wedgeprops={'edgecolor': 'white', 'width': 0.75}  # width defines the proportion of the donut hole to the total pie chart (0: full hole, 1: no hole)
+        )
+
+        ax.legend(
+            wedges,
+            labels=data.index,  # full labels here
+            title=title,
+            bbox_to_anchor=(1,1),
+            loc='upper right',
+            fontsize=8
+        )
+
+        ax.set_aspect('equal')
+
+        if save_plot_filename is not None:
+            self._save_plot(figure=fig,
+                            filename=save_plot_filename,
+                            save_folder=save_folder,
+                            pdf_page_title=pdf_page_title,
+                            enable_pdf_write=enable_pdf_write
+                            )
+
+        if display_plots == True:
+            # Enable interactive mode for non-blocking display
+            # Note: Figure remains open until script terminates - no plt.close() call
+            self._enable_interactive_plots()
+            print(f"Pie chart displayed for [{title}]")
+
+        return fig
+
+    def _basic_scatter_plot(self, x: pd.Series, y: pd.Series, xLabel: str = "X", yLabel: str = "Y",
+    title: str = "Scatter Plot", label: str = "Legend", 
+    save_plot_filename: str = None, save_folder: str = None, pdf_page_title: str = None,
+    enable_pdf_write: bool = True, display_plots: bool = False
+    ):
+        """
+        Basic scatter plot for single trace.
+        """
+        fig = plt.figure(figsize=(8, 6))
+        plt.scatter(x, y, s=6, alpha=0.25, label=label)
+        plt.xlabel(xLabel)
+        plt.ylabel(yLabel)
+        plt.title(title)
+        plt.legend(title='Labels', bbox_to_anchor=(1,1), loc='upper right', fontsize=9)
+        plt.grid(True, alpha=0.3)
+
+        if save_plot_filename is not None:
+            self._save_plot(figure=fig,
+                            filename=save_plot_filename,
+                            save_folder=save_folder,
+                            pdf_page_title=pdf_page_title,
+                            enable_pdf_write=enable_pdf_write
+                            )
+
+        if display_plots == True:
+            # Enable interactive mode for non-blocking display
+            # Note: Figure remains open until script terminates - no plt.close() call
+            self._enable_interactive_plots()
+            print(f"Scatter plot displayed for [{xLabel}] vs [{yLabel}]")
+
+        return fig
 
     def _save_plot(self, figure: plt.figure, filename: str, save_folder: str, pdf_page_title: str = None, enable_pdf_write: bool = True):
                             # Save the plot if filepath is provided
